@@ -62,26 +62,39 @@ embdLast (Flat x) = Embd (fmap Flat x)
 embdLast (Embd x) = Embd (fmap embdLast x)
 
 class Expandable (d :: Dim)  where
-    liftPure :: (∀ a. a -> f a) -> b -> Nested d f b
+    liftPure :: (forall a. a -> f a) -> b -> Nested d f b
     liftApp
         :: Functor f
-        => (∀ a b. f (a -> b) -> f a -> f b)
+        => (forall a b. f (a -> b) -> f a -> f b)
         -> Nested d f (x -> y)
         -> Nested d f x
         -> Nested d f y
     liftTrav
         :: Functor f
-        => (∀ a b. (a -> f b) -> t a -> f (t b))
+        => (forall a b. (a -> f b) -> t a -> f (t b))
         -> (x -> f y)
         -> Nested d t x
         -> f (Nested d t y)
-    transpose :: (Traversable t, Applicative t) => Nested d t a -> Nested d t a
+    transpose
+        :: (Traversable t, Applicative t)
+        => Nested d t a -> Nested d t a
+    matMul
+        :: (Semiring a, Applicative f, Traversable f)
+        => Nested d f a -> Nested d f a -> Nested d f a
+    mull
+        :: (Applicative f, Traversable f, Semiring a)
+        => Nested d f a -> f (Nested d f a) -> Nested d f a
 
 instance Expandable 'L where
     liftPure p = Flat . p
     liftApp a (Flat fs) (Flat xs) = Flat (a fs xs)
     liftTrav t f (Flat x) = fmap Flat (t f x)
     transpose = id
+    matMul (Flat x) (Flat y) = Flat (liftA2 (<.>) x y)
+    mull xr = add . fmap (xr<.>)
+
+getEmbd :: Nested ('P n) f a -> f (Nested n f a)
+getEmbd (Embd x) = x
 
 instance Expandable d =>
          Expandable ('P d) where
@@ -89,6 +102,9 @@ instance Expandable d =>
     liftApp a (Embd fs) (Embd xs) = Embd (a (fmap (liftApp a) fs) xs)
     liftTrav t f (Embd x) = fmap Embd (t (liftTrav t f) x)
     transpose (Embd x) = embdLast (traverse transpose x)
+    mull (Embd xr) yr = Embd (fmap ((add . liftA2 (<.>) xr) . getEmbd) yr)
+    matMul (Embd xs) y = case transpose y of
+      Embd ys -> Embd (fmap (`mull` ys) xs)
 
 instance (Expandable d, Applicative t) => Applicative (Nested d t) where
   pure = liftPure pure
@@ -124,13 +140,19 @@ flatten :: Monad m => Nested c m a -> m a
 flatten (Embd x) = x >>= flatten
 flatten (Flat x) = x
 
-instance (Expandable n, Applicative f, Semiring a, Traversable f) => Semiring (Nested n f a) where
-  zero = pure zero
-  (<+>) = liftA2 (<+>)
-  one = imap allEq zero where
-    allEq :: (Semiring n) => Nested c ((,) Integer) n -> n
-    allEq (Flat (_,x)) = one
-    allEq (Embd (x,Flat(y,z))) | x /= y = z
-    allEq (Embd (x,Embd(y,z))) | x /= y = zero
-    allEq (Embd (_,x)) = allEq x
-  (<.>) = matMul
+instance (Expandable n, Applicative f, Semiring a, Traversable f) =>
+         Semiring (Nested n f a) where
+    zero = pure zero
+    (<+>) = liftA2 (<+>)
+    one = imap allEq zero
+      where
+        allEq
+            :: (Semiring n)
+            => Nested c ((,) Integer) n -> n
+        allEq (Flat (_,_)) = one
+        allEq (Embd (x,Flat (y,z)))
+          | x /= y = z
+        allEq (Embd (x,Embd (y,_)))
+          | x /= y = zero
+        allEq (Embd (_,x)) = allEq x
+    (<.>) = matMul
