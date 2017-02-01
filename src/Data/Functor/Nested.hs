@@ -15,7 +15,7 @@ module Data.Functor.Nested where
 import Data.Traversable
 import Data.Functor.Classes
 import Data.Semiring
-import COntrol.Applicative
+import Control.Applicative
 
 data Dim
     = L
