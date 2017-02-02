@@ -9,13 +9,13 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-
 module Data.Functor.Nested where
 
 import Data.Traversable
 import Data.Functor.Classes
 import Data.Semiring
 import Control.Applicative
+import Data.Functor.Identity
 
 data Dim
     = L
@@ -61,54 +61,59 @@ embdLast :: Functor f => Nested c f (f a) -> Nested ('P c) f a
 embdLast (Flat x) = Embd (fmap Flat x)
 embdLast (Embd x) = Embd (fmap embdLast x)
 
-class Expandable (d :: Dim)  where
-    liftPure :: (forall a. a -> f a) -> b -> Nested d f b
-    liftApp
+class Expandable (c :: Dim)  where
+    liftMake
         :: Functor f
-        => (forall a b. f (a -> b) -> f a -> f b)
-        -> Nested d f (x -> y)
-        -> Nested d f x
-        -> Nested d f y
-    liftTrav
-        :: Functor f
-        => (forall a b. (a -> f b) -> t a -> f (t b))
-        -> (x -> f y)
-        -> Nested d t x
-        -> f (Nested d t y)
+        => (forall a. f a -> f (v a)) -> f b -> f (Nested c v b)
+    liftAp
+        :: Applicative f
+        => Nested c f (a -> b) -> Nested c f a -> Nested c f b
     transpose
-        :: (Traversable t, Applicative t)
-        => Nested d t a -> Nested d t a
+        :: (Applicative f, Traversable f)
+        => Nested c f a -> Nested c f a
     matMul
         :: (Semiring a, Applicative f, Traversable f)
-        => Nested d f a -> Nested d f a -> Nested d f a
-    mull
+        => Nested c f a -> Nested c f a -> Nested c f a
+    mul1
         :: (Applicative f, Traversable f, Semiring a)
-        => Nested d f a -> f (Nested d f a) -> Nested d f a
+        => Nested c f a -> f (Nested c f a) -> Nested c f a
 
-instance Expandable 'L where
-    liftPure p = Flat . p
-    liftApp a (Flat fs) (Flat xs) = Flat (a fs xs)
-    liftTrav t f (Flat x) = fmap Flat (t f x)
-    transpose = id
-    matMul (Flat x) (Flat y) = Flat (liftA2 (<.>) x y)
-    mull xr = add . fmap (xr<.>)
 
 getEmbd :: Nested ('P n) f a -> f (Nested n f a)
 getEmbd (Embd x) = x
 
-instance Expandable d =>
-         Expandable ('P d) where
-    liftPure p = Embd . p . liftPure p
-    liftApp a (Embd fs) (Embd xs) = Embd (a (fmap (liftApp a) fs) xs)
-    liftTrav t f (Embd x) = fmap Embd (t (liftTrav t f) x)
-    transpose (Embd x) = embdLast (traverse transpose x)
-    mull (Embd xr) yr = Embd (fmap ((add . liftA2 (<.>) xr) . getEmbd) yr)
-    matMul (Embd xs) y = case transpose y of
-      Embd ys -> Embd (fmap (`mull` ys) xs)
+instance Expandable 'L where
+    liftMake f x = fmap Flat (f x)
+    liftAp (Flat fs) (Flat xs) = Flat ((<*>) fs xs)
+    transpose (Flat x) = Flat x
+    matMul (Flat xs) (Flat ys) = Flat (liftA2 (<.>) xs ys)
+    mul1 (Flat xs) ys =
+        Flat $
+        fmap
+            (\(Flat yr) ->
+                  add $ liftA2 (<.>) xs yr)
+            ys
 
-instance (Expandable d, Applicative t) => Applicative (Nested d t) where
-  pure = liftPure pure
-  (<*>) = liftApp (<*>)
+instance (Expandable n) =>
+         Expandable ('P n) where
+    liftMake f x = fmap Embd (f (liftMake f x))
+    liftAp (Embd fs) (Embd xs) = Embd (liftA2 liftAp fs xs)
+    transpose (Embd x) = embdLast (traverse transpose x)
+    matMul (Embd xs) y =
+        case transpose y of
+            Embd ys -> Embd (fmap (`mul1` ys) xs)
+    mul1 (Embd x) y = Embd (mull x (fmap getEmbd y))
+
+instance (Applicative f, Expandable c) =>
+         Applicative (Nested c f) where
+    pure x = runIdentity (liftMake (fmap pure) (Identity x))
+    (<*>) = liftAp
+
+mull
+    :: (Applicative f, Traversable f, Semiring a, Expandable n)
+    => f (Nested n f a) -> f (f (Nested n f a)) -> f (Nested n f a)
+mull xr = fmap (add . liftA2 (<.>) xr)
+
 
 type (f ~> g) = ∀ a. f a -> g a
 

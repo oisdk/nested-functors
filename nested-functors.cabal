@@ -28,6 +28,7 @@ test-suite nested-functors-test
                      , nested-functors
                      , QuickCheck >= 2.8
                      , doctest >= 0.11
+                     , semiring-num >= 0.6
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
 
