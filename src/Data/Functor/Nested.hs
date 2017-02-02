@@ -9,13 +9,20 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Data.Functor.Nested where
+module Data.Functor.Nested
+  (Dim(..)
+  ,Nested(..)
+  ,Expandable
+  ,liftFmap
+  ,flatten)
+  where
 
 import Data.Traversable
 import Data.Functor.Classes
 import Data.Semiring
 import Control.Applicative
 import Data.Functor.Identity
+import Control.Monad
 
 data Dim
     = L
@@ -114,7 +121,6 @@ mull
     => f (Nested n f a) -> f (f (Nested n f a)) -> f (Nested n f a)
 mull xr = fmap (add . liftA2 (<.>) xr)
 
-
 type (f ~> g) = ∀ a. f a -> g a
 
 liftFmap :: Functor f => (f ~> g) -> Nested c f a -> Nested c g a
@@ -144,6 +150,13 @@ imap f (Embd x) =
 flatten :: Monad m => Nested c m a -> m a
 flatten (Embd x) = x >>= flatten
 flatten (Flat x) = x
+
+remLast :: Monad m => Nested c m (m a) -> Nested c m a
+remLast (Flat x) = Flat (join x)
+remLast (Embd x) = Embd (fmap remLast x)
+
+instance (Monad m, Expandable c) => Monad (Nested c m) where
+  x >>= f = remLast (fmap (flatten . f) x)
 
 instance (Expandable n, Applicative f, Semiring a, Traversable f) =>
          Semiring (Nested n f a) where
