@@ -12,7 +12,7 @@
 module Data.Functor.Nested
   (Dim(..)
   ,Nested(..)
-  ,Expandable
+  ,Expandable(..)
   ,liftFmap
   ,flatten)
   where

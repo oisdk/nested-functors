@@ -11,8 +11,9 @@ import Data.Functor.Nested
 import Test.Semiring
 import Data.Functor.Classes
 
-instance (Arbitrary a, Applicative f, Expandable d) => Arbitrary (Nested d f a) where
-  arbitrary = liftMake (fmap pure) arbitrary
+instance (Arbitrary a, Applicative f, Expandable d) =>
+         Arbitrary (Nested d f a) where
+    arbitrary = liftMake (fmap pure) arbitrary
 
 infixr 5 :-
 data Vect d a where
